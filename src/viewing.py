@@ -21,6 +21,33 @@ def normalize(vector: np.ndarray) -> np.ndarray:
     return vector / np.sqrt(np.dot(vector, vector))
 
 
+def sqr_distance(a: Vertex, b: Vertex) -> np.float32:
+    diff: Vertex = a - b
+    return np.dot(diff, diff)
+
+
+def close(a: Vertex, b: Vertices) -> int:
+    close_i: int = 0
+    close_d: np.float32 = sqr_distance(a, b[0])
+    for i in range(1, len(b)):
+        dis: np.float32 = sqr_distance(a, b[i])
+        if dis < close_d:
+            close_i = i
+            close_d = dis
+    return close_i
+
+
+def far(a: Vertex, b: Vertices) -> int:
+    far_i: int = 0
+    far_d: np.float32 = sqr_distance(a, b[0])
+    for i in range(1, len(b)):
+        dis: np.float32 = sqr_distance(a, b[i])
+        if dis > far_d:
+            far_i = i
+            far_d = dis
+    return far_i
+
+
 # Create a 3D cube
 def create_cube() -> tuple[Vertices, list[Edge]]:
     vertices: Vertices = np.array(
@@ -219,8 +246,8 @@ def viewport_transform(
 ) -> Vertices:
     viewport_matrix: Vertex_H = np.array(
         [
-            [width / 2, 0, 0, (width + 1) / 2],
-            [0, height / 2, 0, (height + 1) / 2],
+            [width / 2, 0, 0, (width - 1) / 2],
+            [0, height / 2, 0, (height - 1) / 2],
             [0, 0, 1, 0],
             [0, 0, 0, 1],
         ],
@@ -260,12 +287,13 @@ def main() -> int:
     )
 
     # Projection transformations
+    close_ = close(eye, vertices)
+    far_ = far(close_, vertices)
     perspective_vertices: Vertices_H = project_vertices(
         transformed_vertices,
         ProjectionType.PERSPECTIVE,
-        near=1,
-        # far=10,
-        far=7,
+        near=close_,
+        far=far_,
         fov=np.pi / 4,
         aspect=800 / 600,
     )
@@ -273,9 +301,8 @@ def main() -> int:
     orthographic_vertices: Vertices_H = project_vertices(
         transformed_vertices,
         ProjectionType.ORTHOGRAPHIC,
-        near=1,
-        # far=10,
-        far=7,
+        near=close_,
+        far=far_,
     )
 
     # Viewport transformation

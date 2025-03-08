@@ -1,4 +1,5 @@
 from typing import Annotated, Literal
+from dataclasses import dataclass
 from enum import Enum
 import numpy as np
 import matplotlib.pyplot as plt
@@ -15,6 +16,18 @@ Edge = Annotated[tuple[int, int], "tuple 2 ints"]
 class ProjectionType(Enum):
     PERSPECTIVE = 1
     ORTHOGRAPHIC = 2
+
+
+@dataclass
+class Rectangle:
+    height: np.float32
+    width: np.float32
+    depth: np.float32
+
+    center: Vertex
+
+    vertices: Vertices
+    edges: list[Edge]
 
 
 def normalize(vector: np.ndarray) -> np.ndarray:
@@ -49,34 +62,80 @@ def far(a: Vertex, b: Vertices) -> int:
 
 
 # Create a 3D cube
-def create_cube() -> tuple[Vertices, list[Edge]]:
-    vertices: Vertices = np.array(
-        [
-            [-1, -1, -1],
-            [1, -1, -1],
-            [1, 1, -1],
-            [-1, 1, -1],  # Back face
-            [-1, -1, 1],
-            [1, -1, 1],
-            [1, 1, 1],
-            [-1, 1, 1],  # Front face
-        ]
+def centered_cube(side_length: np.float32 = 2) -> Rectangle:
+    l = side_length / 2
+    return Rectangle(
+        height=side_length,
+        width=side_length,
+        depth=side_length,
+        center=np.zeros(3, dtype=np.float32),
+        vertices=np.array(
+            [
+                [-1 * l, -1 * l, -1 * l],
+                [l, -1 * l, -1 * l],
+                [l, l, -1 * l],
+                [-1 * l, l, -1 * l],  # Back face
+                [-1 * l, -1 * l, l],
+                [l, -1 * l, l],
+                [l, l, l],
+                [-1 * l, l, l],  # Front face
+            ],
+            dtype=np.float32,
+        ),
+        edges=[
+            (0, 1),
+            (1, 2),
+            (2, 3),
+            (3, 0),  # Back face
+            (4, 5),
+            (5, 6),
+            (6, 7),
+            (7, 4),  # Front face
+            (0, 4),
+            (1, 5),
+            (2, 6),
+            (3, 7),  # Connecting edges
+        ],
     )
-    edges: list[Edge] = [
-        (0, 1),
-        (1, 2),
-        (2, 3),
-        (3, 0),  # Back face
-        (4, 5),
-        (5, 6),
-        (6, 7),
-        (7, 4),  # Front face
-        (0, 4),
-        (1, 5),
-        (2, 6),
-        (3, 7),  # Connecting edges
-    ]
-    return vertices, edges
+
+
+def cube_at_point(point: Vertex, side_length: np.float32):
+    p = point
+    l = side_length
+    return Rectangle(
+        height=side_length,
+        width=side_length,
+        depth=side_length,
+        center=np.array(
+            [p[0] + l / 2, p[1] + 1 / 2, p[2] + 1 / 2], dtype=np.float32
+        ),
+        vertices=np.array(
+            [
+                p,
+                [p[0] + l, p[1], p[2]],
+                [p[0] + l, p[1] + l, p[2]],
+                [p[0], p[1] + l, p[2]],  # close face
+                [p[0], p[1], p[2] + l],
+                [p[0] + l, p[1], p[2] + l],
+                [p[0] + l, p[1] + l, p[2] + l],
+                [p[0], p[1] + l, p[2] + l],  # far face
+            ]
+        ),
+        edges=[
+            (0, 1),
+            (1, 2),
+            (2, 3),
+            (3, 0),  # close face
+            (4, 5),
+            (5, 6),
+            (6, 7),
+            (7, 4),  # far face
+            (0, 4),
+            (1, 5),
+            (2, 6),
+            (3, 7),  # Connecting edges
+        ],
+    )
 
 
 # Camera Transformation
@@ -89,90 +148,72 @@ def camera_transform(
     """convert a set of vertices from the canonical basis of R^3 to an
     the homogenous coordinates of an orthonormal basis in R^3 centered at eye,
     generated from gaze and up"""
+
+    # point away from objects
     w = -1 * normalize(gaze)
+    # point right
     u = normalize(np.cross(up, w))
+    # point up
     v = np.cross(w, u)
 
-    transformation: Vertices_H = np.dot(
-        np.array(
-            [
-                np.append(u, 0),
-                np.append(v, 0),
-                np.append(w, 0),
-                [0, 0, 0, 1],
-            ],
-            dtype=np.float32,
-        ),
-        np.array(
-            [
-                [1, 0, 0, -1 * eye[0]],
-                [0, 1, 0, -1 * eye[1]],
-                [0, 0, 1, -1 * eye[2]],
-                [0, 0, 0, 1],
-            ],
-            dtype=np.float32,
-        ),
-    )
-
+    # shape m x 4 (need transpose, and output transpose of transpose)
     homogenous_coords: Vertices_H = np.concatenate(
         (vertices, np.ones((vertices.shape[0], 1), dtype=np.float32)), axis=1
     )
 
-    return np.dot(homogenous_coords, np.transpose(transformation))
+    # shape 4 x 4
+    translation: Vertex_H = np.array(
+        [
+            [1, 0, 0, -1 * eye[0]],
+            [0, 1, 0, -1 * eye[1]],
+            [0, 0, 1, -1 * eye[2]],
+            [0, 0, 0, 1],
+        ],
+        dtype=np.float32,
+    )
+
+    # shape 4 x 4
+    basis_change: Vertices_H = np.array(
+        [
+            [u[0], v[0], w[0], 0],
+            [u[1], v[1], w[1], 0],
+            [u[2], v[2], w[2], 0],
+            [0, 0, 0, 1],
+        ],
+        dtype=np.float32,
+    )
+
+    # returning basis_change (B) * translation (T) * homogenous_coords_rows (H)
+    #   (B * T * Ht)t
+    #   = H * (B * T)t
+    transformation = np.transpose(np.dot(basis_change, translation))
+    return np.dot(homogenous_coords, transformation)
 
 
 def project_perspective(
     vertices: Vertices_H,
-    near: np.int32,
-    far: np.int32,
+    orthogonal_volume: Rectangle,
     fov: np.float32,
     aspect: np.float32,
 ) -> Vertices_H:
-    near_vector: Vertex = vertices[near][:-1]
-    far_vector: Vertex = vertices[far][:-1]
 
-    transform: Vertices_H = np.dot(
-        np.array(
+    close_ = orthogonal_volume.vertices[
+        close(np.zeros(3, dtype=np.float32), orthogonal_volume.vertices)
+    ]
+    far_ = orthogonal_volume.vertices[far(close_, orthogonal_volume.vertices)]
+    transform: Vertices_H = np.array(
+        [
+            [close_[2], 0, 0, 0],
+            [0, close_[2], 0, 0],
             [
-                [
-                    2 / (far_vector[0] - near_vector[0]),
-                    0,
-                    0,
-                    (far_vector[0] + near_vector[0])
-                    / (near_vector[0] - far_vector[0]),
-                ],
-                [
-                    0,
-                    2 / (far_vector[1] - near_vector[1]),
-                    0,
-                    (far_vector[1] + near_vector[1])
-                    / (near_vector[1] - far_vector[1]),
-                ],
-                [
-                    0,
-                    0,
-                    2 / (near_vector[2] - far_vector[2]),
-                    (near_vector[2] + far_vector[2])
-                    / (far_vector[2] - near_vector[2]),
-                ],
-                [0, 0, 0, 1],
+                0,
+                0,
+                close_[2] + far_[2],
+                -1 * close_[2] * far_[2],
             ],
-            dtype=np.float32,
-        ),
-        np.array(
-            [
-                [near_vector[2], 0, 0, 0],
-                [0, near_vector[2], 0, 0],
-                [
-                    0,
-                    0,
-                    near_vector[2] + far_vector[2],
-                    -1 * near_vector[2] * far_vector[2],
-                ],
-                [0, 0, 1, 0],
-            ],
-            dtype=np.float32,
-        ),
+            [0, 0, 1, 0],
+        ],
+        dtype=np.float32,
     )
 
     return np.dot(vertices, np.transpose(transform))
@@ -180,34 +221,33 @@ def project_perspective(
 
 def project_orthographic(
     vertices: Vertices_H,
-    near: np.int32,
-    far: np.int32,
+    orthogonal_volume: Rectangle,
 ) -> Vertices_H:
-    near_vector: Vertex = vertices[near][:-1]
-    far_vector: Vertex = vertices[far][:-1]
+
+    close_ = orthogonal_volume.vertices[
+        close(np.zeros(3, dtype=np.float32), orthogonal_volume.vertices)
+    ]
+    far_ = orthogonal_volume.vertices[far(close_, orthogonal_volume.vertices)]
 
     transform: Vertices_H = np.array(
         [
             [
-                2 / (far_vector[0] - near_vector[0]),
+                2 / (far_[0] - close_[0]),
                 0,
                 0,
-                (far_vector[0] + near_vector[0])
-                / (near_vector[0] - far_vector[0]),
+                (far_[0] + close_[0]) / (close_[0] - far_[0]),
             ],
             [
                 0,
-                2 / (far_vector[1] - near_vector[1]),
+                2 / (far_[1] - close_[1]),
                 0,
-                (far_vector[1] + near_vector[1])
-                / (near_vector[1] - far_vector[1]),
+                (far_[1] + close_[1]) / (close_[1] - far_[1]),
             ],
             [
                 0,
                 0,
-                2 / (near_vector[2] - far_vector[2]),
-                (near_vector[2] + far_vector[2])
-                / (far_vector[2] - near_vector[2]),
+                2 / (close_[2] - far_[2]),
+                (far_[2] + close_[2]) / (far_[2] - close_[2]),
             ],
             [0, 0, 0, 1],
         ],
@@ -220,9 +260,8 @@ def project_orthographic(
 # Projection Transformation
 def project_vertices(
     vertices: Vertices_H,
+    orthogonal_volume: Rectangle,
     projection_type: ProjectionType = ProjectionType.PERSPECTIVE,
-    near: np.int32 = 1,
-    far: np.int32 = 10,
     fov: np.float32 = np.pi / 4,
     aspect: np.float32 = 1.0,
 ) -> Vertices_H | None:
@@ -232,22 +271,27 @@ def project_vertices(
     - orthographic: applies an orthographic projection.
     """
     if projection_type == ProjectionType.PERSPECTIVE:
-        return project_perspective(vertices, near, far, fov, aspect)
-    elif projection_type == ProjectionType.ORTHOGRAPHIC:
-        return project_orthographic(vertices, near, far)
-    return None
+        vertices = project_perspective(
+            vertices, orthogonal_volume, fov, aspect
+        )
+    elif projection_type != ProjectionType.ORTHOGRAPHIC:
+        return None
+    return project_orthographic(vertices, orthogonal_volume)
 
 
 # Viewport Transformation
 def viewport_transform(
     vertices: Vertices_H,
-    width: np.float32,
-    height: np.float32,
+    target_width: np.float32,
+    target_height: np.float32,
 ) -> Vertices:
+
+    # blow up the image to the final size, and shift out of the
+    # center (no negatives)
     viewport_matrix: Vertex_H = np.array(
         [
-            [width / 2, 0, 0, (width - 1) / 2],
-            [0, height / 2, 0, (height - 1) / 2],
+            [target_width / 2, 0, 0, (target_width - 1) / 2],
+            [0, target_height / 2, 0, (target_height - 1) / 2],
             [0, 0, 1, 0],
             [0, 0, 0, 1],
         ],
@@ -273,36 +317,36 @@ def render_scene(vertices, edges, ax, **kwargs) -> None:
 # Main function
 def main() -> int:
     # Scene setup
-    vertices, edges = create_cube()
+    cube = centered_cube()
     eye: Vertex = np.array([0.5, 0.5, -3])  # Camera at the origin
     gaze: Vertex = np.array([-1, -1, -5])  # Looking towards the cube
     up: Vertex = np.array([0, 1, 0])  # Up is along +Y-axis
 
     # Camera transformation
     transformed_vertices: Vertices_H = camera_transform(
-        vertices,
+        cube.vertices,
         eye,
         gaze,
         up,
     )
 
+    orthogonal_volume: Rectangle = cube_at_point(
+        np.array([-2.0, -2.0, 0.0], dtype=np.float32), 4.0
+    )
+
     # Projection transformations
-    close_ = close(eye, vertices)
-    far_ = far(close_, vertices)
     perspective_vertices: Vertices_H = project_vertices(
         transformed_vertices,
-        ProjectionType.PERSPECTIVE,
-        near=close_,
-        far=far_,
+        orthogonal_volume=orthogonal_volume,
+        projection_type=ProjectionType.PERSPECTIVE,
         fov=np.pi / 4,
         aspect=800 / 600,
     )
 
     orthographic_vertices: Vertices_H = project_vertices(
         transformed_vertices,
-        ProjectionType.ORTHOGRAPHIC,
-        near=close_,
-        far=far_,
+        orthogonal_volume=orthogonal_volume,
+        projection_type=ProjectionType.ORTHOGRAPHIC,
     )
 
     # Viewport transformation
@@ -319,8 +363,8 @@ def main() -> int:
     axes[0].set_title("Perspective Projection")
     axes[1].set_title("Orthographic Projection")
 
-    render_scene(persp_2d, edges, axes[0], color="blue", marker="o")
-    render_scene(ortho_2d, edges, axes[1], color="red", marker="o")
+    render_scene(persp_2d, cube.edges, axes[0], color="blue", marker="o")
+    render_scene(ortho_2d, cube.edges, axes[1], color="red", marker="o")
 
     for ax in axes:
         ax.set_xlim(0, viewport_width)

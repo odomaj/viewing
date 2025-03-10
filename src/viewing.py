@@ -164,9 +164,9 @@ def camera_transform(
     # shape 4 x 4
     translation: Vertex_H = np.array(
         [
-            [1, 0, 0, -1 * eye[0]],
-            [0, 1, 0, -1 * eye[1]],
-            [0, 0, 1, -1 * eye[2]],
+            [1, 0, 0, eye[0]],
+            [0, 1, 0, eye[1]],
+            [0, 0, 1, eye[2]],
             [0, 0, 0, 1],
         ],
         dtype=np.float32,
@@ -193,14 +193,14 @@ def camera_transform(
 def project_perspective(
     vertices: Vertices_H,
     orthogonal_volume: Rectangle,
-    fov: np.float32,
-    aspect: np.float32,
 ) -> Vertices_H:
 
     close_ = orthogonal_volume.vertices[
         close(np.zeros(3, dtype=np.float32), orthogonal_volume.vertices)
     ]
     far_ = orthogonal_volume.vertices[far(close_, orthogonal_volume.vertices)]
+
+    # everything is scaled by a factor of z by this matrix
     transform: Vertices_H = np.array(
         [
             [close_[2], 0, 0, 0],
@@ -216,7 +216,12 @@ def project_perspective(
         dtype=np.float32,
     )
 
-    return np.dot(vertices, np.transpose(transform))
+    # need to scale the output vectors based on their z coordinate
+    # not a linear transformation but only way to solve problem
+    scaled_result: Vertices_H = np.dot(vertices, np.transpose(transform))
+    for i in range(len(scaled_result)):
+        scaled_result[i] = scaled_result[i] / scaled_result[i, -1]
+    return scaled_result
 
 
 def project_orthographic(
@@ -262,8 +267,6 @@ def project_vertices(
     vertices: Vertices_H,
     orthogonal_volume: Rectangle,
     projection_type: ProjectionType = ProjectionType.PERSPECTIVE,
-    fov: np.float32 = np.pi / 4,
-    aspect: np.float32 = 1.0,
 ) -> Vertices_H | None:
     """
     Apply a projection transformation to 3D vertices.
@@ -271,9 +274,7 @@ def project_vertices(
     - orthographic: applies an orthographic projection.
     """
     if projection_type == ProjectionType.PERSPECTIVE:
-        vertices = project_perspective(
-            vertices, orthogonal_volume, fov, aspect
-        )
+        vertices = project_perspective(vertices, orthogonal_volume)
     elif projection_type != ProjectionType.ORTHOGRAPHIC:
         return None
     return project_orthographic(vertices, orthogonal_volume)
@@ -331,7 +332,7 @@ def main() -> int:
     )
 
     orthogonal_volume: Rectangle = cube_at_point(
-        np.array([-2.0, -2.0, 0.0], dtype=np.float32), 4.0
+        np.array([-2.0, -2.0, 2.0], dtype=np.float32), 4.0
     )
 
     # Projection transformations
@@ -339,8 +340,6 @@ def main() -> int:
         transformed_vertices,
         orthogonal_volume=orthogonal_volume,
         projection_type=ProjectionType.PERSPECTIVE,
-        fov=np.pi / 4,
-        aspect=800 / 600,
     )
 
     orthographic_vertices: Vertices_H = project_vertices(

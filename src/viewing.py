@@ -1,4 +1,4 @@
-from typing import Annotated, Literal
+from typing import Annotated
 from dataclasses import dataclass
 from enum import Enum
 import numpy as np
@@ -164,9 +164,9 @@ def camera_transform(
     # shape 4 x 4
     translation: Vertex_H = np.array(
         [
-            [1, 0, 0, eye[0]],
-            [0, 1, 0, eye[1]],
-            [0, 0, 1, eye[2]],
+            [1, 0, 0, -1 * eye[0]],
+            [0, 1, 0, -1 * eye[1]],
+            [0, 0, 1, -1 * eye[2]],
             [0, 0, 0, 1],
         ],
         dtype=np.float32,
